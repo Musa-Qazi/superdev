@@ -54,6 +54,7 @@ import {
   Zap,
 } from "lucide-react";
 import { api, json } from "./api";
+import { TrackerKpis } from "./TrackerKpis";
 import type {
   AIAnswer,
   Activity,
@@ -1021,28 +1022,7 @@ function TrackerPage({
           </button>
         }
       />
-      <div className="tracker-summary">
-        <span>
-          <b>{filtered.length}</b> of {modules.length} modules
-        </span>
-        <span>
-          <i className="mini-dot blocked" />
-          {modules.filter((m: Module) => m.status === "Blocked").length} blocked
-        </span>
-        <span>
-          <i className="mini-dot ready" />
-          {
-            modules.filter((m: Module) => m.status === "Ready for Integration")
-              .length
-          }{" "}
-          ready for integration
-        </span>
-        <span>
-          <i className="mini-dot completed" />
-          {modules.filter((m: Module) => m.status === "Completed").length}{" "}
-          completed
-        </span>
-      </div>
+      <TrackerKpis modules={filtered} total={modules.length} />
       <div className="filter-panel">
         <div className="search-field">
           <Search size={16} />
