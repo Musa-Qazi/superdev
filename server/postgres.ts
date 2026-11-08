@@ -1,13 +1,22 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import pg, { type PoolClient, type QueryResultRow } from "pg";
+import { supabaseRootCa } from "./supabase-ca.js";
 
 // Supabase's transaction pooler is shared between serverless instances.
-let pool = new pg.Pool({
-  connectionString: process.env.POSTGRES_URL,
-  max: 2,
-  idleTimeoutMillis: 5_000,
-  connectionTimeoutMillis: 10_000,
-});
+export function postgresConnectionOptions(connectionString: string | undefined): pg.PoolConfig {
+  const options: pg.PoolConfig = { connectionString, max: 1, idleTimeoutMillis: 5_000, connectionTimeoutMillis: 10_000 };
+  if (!connectionString) return options;
+  const url = new URL(connectionString);
+  if (url.hostname.endsWith(".supabase.co") || url.hostname.endsWith(".pooler.supabase.com")) {
+    // pg's URL sslmode overrides the explicit CA; remove it before supplying
+    // the official Supabase trust anchor and retaining hostname validation.
+    url.searchParams.delete("sslmode");
+    options.connectionString = url.toString();
+    options.ssl = { ca: supabaseRootCa, rejectUnauthorized: true };
+  }
+  return options;
+}
+let pool = new pg.Pool(postgresConnectionOptions(process.env.POSTGRES_PRISMA_URL || process.env.POSTGRES_URL));
 pg.types.setTypeParser(20, (value) => Number(value));
 const transactionClient = new AsyncLocalStorage<PoolClient>();
 

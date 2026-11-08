@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareSql } from "./postgres.js";
+import { postgresConnectionOptions, prepareSql } from "./postgres.js";
+
+test("Supabase connections verify TLS against its root certificate", () => {
+  const options = postgresConnectionOptions("postgres://user:pass@db.example.supabase.co:5432/postgres?sslmode=require");
+  assert.ok(!options.connectionString?.includes("sslmode"));
+  assert.equal((options.ssl as { rejectUnauthorized?: boolean }).rejectUnauthorized, true);
+  assert.match(String((options.ssl as { ca?: string }).ca), /BEGIN CERTIFICATE/);
+  assert.equal(options.max, 1);
+});
 
 test("translates placeholders without changing quoted question marks", () => {
   assert.equal(
