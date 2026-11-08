@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["bom1"],
+  "functions": {
+    "api/index.ts": { "maxDuration": 120 }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index?__devpulse_route=:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

@@ -31,6 +31,7 @@ The production command starts one Express service. It serves `dist/` and the API
 | `PORT`           | HTTP listen port; Render supplies this automatically.                            |
 | `NODE_ENV`       | Set to `production` for static frontend serving.                                 |
 | `DATABASE_PATH`  | SQLite file path. Local default: `.data/devpulse.sqlite`.                        |
+| `POSTGRES_URL`   | Server-side PostgreSQL connection used by the Vercel API.                       |
 | `GEMINI_API_KEY` | Optional server-side key for the AI Companion. Never use a `VITE_` prefix.       |
 | `GEMINI_MODEL`   | Optional Gemini model name; default is `gemini-3.8-flash`.                       |
 | `APP_ACCESS_KEY` | Optional shared key. When set, the app issues a signed HTTP-only session cookie. |
@@ -43,7 +44,13 @@ SQLite is stored at `DATABASE_PATH`, with foreign keys enabled, WAL mode and a f
 
 ## Gemini AI Companion
 
-Create a Gemini API key in Google AI Studio and set it as `GEMINI_API_KEY` in the server environment. Set `GEMINI_MODEL` if the desired supported model differs from the default. The browser never receives the API key. The AI Companion is optional; regular tracking works without it. Ask a question in the AI Companion page to verify configuration. Exact module lists and counts are calculated by the server from current SQLite data and take precedence over generated text.
+Create a Gemini API key in Google AI Studio and set it as `GEMINI_API_KEY` in the server environment. Set `GEMINI_MODEL` if the desired supported model differs from the default. The browser never receives the API key. The AI Companion is optional; regular tracking works without it. Ask a question in the AI Companion page to verify configuration. Exact module lists and counts are calculated by the server from current project data and take precedence over generated text.
+
+## Vercel deployment
+
+The Vercel API uses PostgreSQL and the private `devpulse` schema in `deploy/schema.sql`. The local development server continues to use SQLite; the two databases do not synchronize automatically. Connect a PostgreSQL database to the Vercel project and set `POSTGRES_URL` for production. Protect access to the deployment with Vercel Authentication or `APP_ACCESS_KEY`.
+
+To copy existing local data into an **empty** PostgreSQL schema, set `POSTGRES_URL` and `SQLITE_PATH` in your shell and run `node deploy/import-sqlite.mjs`. The import runs in a transaction and stops if the destination already contains records. It does not alter the SQLite file. Do not commit connection strings or API keys.
 
 ## Render deployment
 
