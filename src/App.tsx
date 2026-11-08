@@ -1263,7 +1263,7 @@ function TrackerPage({
                 <th>Module</th>
                 <th>Overall</th>
                 {STAGE_ORDER.map((s) => (
-                  <th key={s}>{STAGE_SHORT[s]}</th>
+                  <th key={s}>{STAGE_LABEL[s]}</th>
                 ))}
                 <th>Status</th>
                 <th>Team</th>
@@ -1379,22 +1379,20 @@ function TrackerPage({
   );
 }
 function StageMini({ stage }: { stage: Stage }) {
+  const label = stage.status === "Completed" ? "Complete"
+    : stage.status === "Blocked" ? `Blocked · ${stage.progress}%`
+    : stage.status === "In Progress" ? `In progress · ${stage.progress}%`
+    : "Not started";
   return (
-    <div
-      className="stage-mini"
+    <span
+      className={`stage-state stage-state-${STATUS_CLASS(stage.status)}`}
+      aria-label={`${STAGE_LABEL[stage.stage_type]}: ${stage.status}, ${stage.progress}%`}
       title={`${STAGE_LABEL[stage.stage_type]}: ${stage.status} · ${stage.progress}%`}
     >
-      <span className={`mini-status ${STATUS_CLASS(stage.status)}`}>
-        {stage.status === "Completed" ? (
-          <Check size={12} />
-        ) : stage.status === "Blocked" ? (
-          <AlertCircle size={12} />
-        ) : (
-          `${stage.progress}%`
-        )}
-      </span>
-      <Progress value={stage.progress} small />
-    </div>
+      {stage.status === "Completed" && <Check size={13} aria-hidden="true" />}
+      {stage.status === "Blocked" && <AlertCircle size={13} aria-hidden="true" />}
+      {label}
+    </span>
   );
 }
 function ModuleCard({
@@ -1437,7 +1435,7 @@ function ModuleCard({
       <div className="card-stage-list">
         {STAGE_ORDER.map((s) => (
           <div key={s}>
-            <span>{STAGE_SHORT[s]}</span>
+            <span>{STAGE_LABEL[s]}</span>
             <StageMini stage={getStage(module, s)} />
           </div>
         ))}
