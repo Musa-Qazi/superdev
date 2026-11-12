@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -894,6 +895,7 @@ function TrackerPage({
   refresh,
 }: any) {
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("All statuses");
   const [stageFilter, setStageFilter] = useState("");
@@ -906,10 +908,77 @@ function TrackerPage({
   const [bulkStage, setBulkStage] = useState<StageType>("frontend");
   const [bulkDev, setBulkDev] = useState("");
   const [busyBulk, setBusyBulk] = useState(false);
+  useEffect(() => {
+    const handleTypeToSearch = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      )
+        return;
+
+      const target = event.target;
+      const isSearchInput = target === searchInputRef.current;
+      const isEditingText =
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, [contenteditable='true']");
+
+      if (
+        event.key === "Escape" &&
+        search &&
+        (isSearchInput || !isEditingText)
+      ) {
+        event.preventDefault();
+        setSearch("");
+        if (isSearchInput) searchInputRef.current?.blur();
+        return;
+      }
+
+      if (isEditingText || event.repeat) return;
+
+      if (event.key === "Backspace" && search) {
+        event.preventDefault();
+        setSearch((current) => current.slice(0, -1));
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      if (event.key.length === 1) {
+        event.preventDefault();
+        setSearch((current) => current + event.key);
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleTypeToSearch);
+    return () => window.removeEventListener("keydown", handleTypeToSearch);
+  }, [search]);
   const filtered = useMemo(() => {
     let rows = [...modules] as Module[];
     const query = search.toLowerCase().trim();
-    if (query) rows = rows.filter((m) => m.name.toLowerCase().includes(query));
+    if (query)
+      rows = rows.filter((module) => {
+        const searchableText = [
+          module.name,
+          module.category,
+          module.description,
+          module.notes,
+          module.status,
+          ...module.stages.flatMap((stage) => [
+            STAGE_LABEL[stage.stage_type],
+            stage.status,
+            stage.notes,
+            developers.find(
+              (developer: Developer) => developer.id === stage.assigned_developer_id,
+            )?.name ?? "",
+          ]),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return searchableText.includes(query);
+      });
     if (category) rows = rows.filter((m) => m.category === category);
     if (status !== "All statuses")
       rows = rows.filter((m) => m.status === status);
@@ -956,6 +1025,7 @@ function TrackerPage({
     return rows;
   }, [
     modules,
+    developers,
     search,
     category,
     status,
@@ -1027,7 +1097,8 @@ function TrackerPage({
         <div className="search-field">
           <Search size={16} />
           <input
-            placeholder="Search modules…"
+            ref={searchInputRef}
+            placeholder="Type anywhere to search modules…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
