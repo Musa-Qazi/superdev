@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS devpulse.developers (
   name text NOT NULL,
   initials text NOT NULL,
   role_label text NOT NULL DEFAULT '',
+  photo_url text NOT NULL DEFAULT '',
   active integer NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
   created_at text NOT NULL,
   updated_at text NOT NULL

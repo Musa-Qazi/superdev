@@ -46,6 +46,7 @@ export interface Developer {
   name: string;
   initials: string;
   role_label: string;
+  photo_url?: string;
   active: number;
   created_at: string;
   updated_at: string;

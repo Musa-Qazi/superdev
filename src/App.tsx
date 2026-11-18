@@ -137,7 +137,7 @@ function Avatar({
       className={`avatar ${size}`}
       title={`${developer.name}${developer.role_label ? ` · ${developer.role_label}` : ""}`}
     >
-      {developer.initials}
+      {developer.photo_url ? <img src={developer.photo_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }} /> : developer.initials}
     </span>
   ) : (
     <span className={`avatar avatar-empty ${size}`} title="Unassigned">
@@ -580,6 +580,7 @@ export default function App() {
           saveTask={saveTask}
           addTask={addTask}
           notify={notify}
+          refresh={refresh}
         />
       )}
       {toast && (
@@ -896,13 +897,18 @@ function TrackerPage({
 }: any) {
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [addingModule, setAddingModule] = useState(false);
+  const [newModuleName, setNewModuleName] = useState("");
+  const [newModuleArea, setNewModuleArea] = useState("Other");
+  const [newFrontendComplete, setNewFrontendComplete] = useState(false);
+  const [savingModule, setSavingModule] = useState(false);
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("All statuses");
   const [stageFilter, setStageFilter] = useState("");
   const [devFilter, setDevFilter] = useState("");
   const [impact, setImpact] = useState("");
   const [difficulty, setDifficulty] = useState("");
-  const [sort, setSort] = useState("Original order");
+  const [sort, setSort] = useState("Saved order");
   const [view, setView] = useState<"list" | "grid">("list");
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkStage, setBulkStage] = useState<StageType>("frontend");
@@ -936,7 +942,7 @@ function TrackerPage({
         return;
       }
 
-      if (isEditingText || event.repeat) return;
+      if (isEditingText || event.repeat || addingModule || document.querySelector('[role="dialog"]')) return;
 
       if (event.key === "Backspace" && search) {
         event.preventDefault();
@@ -954,7 +960,31 @@ function TrackerPage({
 
     window.addEventListener("keydown", handleTypeToSearch);
     return () => window.removeEventListener("keydown", handleTypeToSearch);
-  }, [search]);
+  }, [search, addingModule]);
+  const createModule = async (event: FormEvent) => {
+    event.preventDefault();
+    setSavingModule(true);
+    try {
+      await api("/api/modules", json("POST", { name: newModuleName, category: newModuleArea, frontend_completed: newFrontendComplete }));
+      setAddingModule(false);
+      setNewModuleName("");
+      setNewModuleArea("Other");
+      setNewFrontendComplete(false);
+      await refresh("Module added.");
+    } catch (error) { notify(error instanceof Error ? error.message : "Could not add module."); }
+    finally { setSavingModule(false); }
+  };
+  const moveModule = async (id: number, direction: number) => {
+    const ordered = (modules as Module[]).map((module) => module.id);
+    const index = ordered.indexOf(id);
+    const destination = index + direction;
+    if (index < 0 || destination < 0 || destination >= ordered.length) return;
+    [ordered[index], ordered[destination]] = [ordered[destination], ordered[index]];
+    try {
+      await api("/api/modules/order", json("PUT", { module_ids: ordered }));
+      await refresh("Module order saved.");
+    } catch (error) { notify(error instanceof Error ? error.message : "Could not save module order."); }
+  };
   const filtered = useMemo(() => {
     let rows = [...modules] as Module[];
     const query = search.toLowerCase().trim();
@@ -1043,7 +1073,7 @@ function TrackerPage({
     setDevFilter("");
     setImpact("");
     setDifficulty("");
-    setSort("Original order");
+    setSort("Saved order");
   };
   const bulkAssign = async () => {
     if (!selected.length || !bulkDev) return;
@@ -1087,9 +1117,9 @@ function TrackerPage({
         title="Module tracker"
         subtitle={`Follow frontend, backend, integration and testing work across all ${modules.length} ERP modules.`}
         actions={
-          <button className="button secondary" onClick={() => window.print()}>
+          <><button className="button primary" onClick={() => setAddingModule(true)}><Plus size={15} /> Add module</button><button className="button secondary" onClick={() => window.print()}>
             <Download size={15} /> Export view
-          </button>
+          </button></>
         }
       />
       <TrackerKpis modules={filtered} total={modules.length} />
@@ -1183,7 +1213,7 @@ function TrackerPage({
           <span>Sort</span>
           <select value={sort} onChange={(e) => setSort(e.target.value)}>
             {[
-              "Original order",
+              "Saved order",
               "Alphabetical",
               "Highest impact",
               "Lowest impact",
@@ -1348,6 +1378,10 @@ function TrackerPage({
                     </td>
                     <td>
                       <div className="table-module-name">
+                        {sort === "Saved order" && <span onClick={(event) => event.stopPropagation()}>
+                          <button type="button" className="icon-button" aria-label={`Move ${m.name} up`} onClick={() => moveModule(m.id, -1)}>↑</button>
+                          <button type="button" className="icon-button" aria-label={`Move ${m.name} down`} onClick={() => moveModule(m.id, 1)}>↓</button>
+                        </span>}
                         <span className="module-order">
                           {String(m.display_order).padStart(2, "0")}
                         </span>
@@ -1426,6 +1460,15 @@ function TrackerPage({
           calculated from the four saved stage values and configured weights.
         </span>
       </div>
+      {addingModule && <div className="modal-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) setAddingModule(false); }}>
+        <form className="form-modal" role="dialog" aria-modal="true" aria-labelledby="add-module-title" onSubmit={createModule}>
+          <div className="modal-heading"><div><h2 id="add-module-title">Add module</h2><p>Track a new area of development.</p></div><button type="button" className="icon-button" onClick={() => setAddingModule(false)} aria-label="Close"><X size={17} /></button></div>
+          <label>Module name<input autoFocus required maxLength={120} value={newModuleName} onChange={(event) => setNewModuleName(event.target.value)} /></label>
+          <label>Area<input required maxLength={80} value={newModuleArea} onChange={(event) => setNewModuleArea(event.target.value)} /></label>
+          <label><input type="checkbox" checked={newFrontendComplete} onChange={(event) => setNewFrontendComplete(event.target.checked)} /> Frontend completed</label>
+          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setAddingModule(false)}>Cancel</button><button className="button primary" disabled={savingModule}>Add module</button></div>
+        </form>
+      </div>}
     </>
   );
 }
@@ -1511,7 +1554,7 @@ function ModuleCard({
   );
 }
 
-function PriorityPage({ modules, openModule, saveModule, notify }: any) {
+function PriorityPage({ modules, openModule, saveModule, notify, refresh }: any) {
   const [mode, setMode] = useState<"quadrants" | "ranking">("quadrants");
   const [dragging, setDragging] = useState(false);
   const quadrants = [
@@ -1547,14 +1590,29 @@ function PriorityPage({ modules, openModule, saveModule, notify }: any) {
   const endDrag = async (event: DragEndEvent) => {
     setDragging(false);
     const id = Number(String(event.active.id).replace("module-", ""));
-    const q = quadrants.find((item) => item.id === event.over?.id);
-    if (!q) return;
+    const targetId = String(event.over?.id ?? "");
+    const target = targetId.startsWith("drop-module-")
+      ? (modules as Module[]).find((m) => m.id === Number(targetId.slice(12)))
+      : undefined;
+    const q = quadrants.find((item) => item.id === targetId) ?? (target
+      ? quadrants.find((item) => (target.impact_score >= 4) === (item.impact >= 4) &&
+          (target.difficulty_score >= 4) === (item.difficulty >= 4))
+      : undefined);
+    const dragged = (modules as Module[]).find((m) => m.id === id);
+    if (!q || !dragged || target?.id === id) return;
     try {
-      await saveModule(id, {
-        impact_score: q.impact,
-        difficulty_score: q.difficulty,
-      });
-      notify("Priority estimate updated.");
+      if ((dragged.impact_score >= 4) !== (q.impact >= 4) ||
+          (dragged.difficulty_score >= 4) !== (q.difficulty >= 4)) {
+        await saveModule(id, { impact_score: q.impact, difficulty_score: q.difficulty });
+      }
+      if (target) {
+        const ordered = (modules as Module[]).map((module) => module.id).filter((moduleId) => moduleId !== id);
+        ordered.splice(ordered.indexOf(target.id), 0, id);
+        await api("/api/modules/order", json("PUT", { module_ids: ordered }));
+        await refresh("Module order saved.");
+      } else {
+        notify("Priority estimate updated.");
+      }
     } catch (e) {
       notify(e instanceof Error ? e.message : "Could not update priority.");
     }
@@ -1673,7 +1731,7 @@ function PriorityPage({ modules, openModule, saveModule, notify }: any) {
           <i className="legend-mark low" /> Lower impact (1–3)
         </span>
         <span>
-          <GripVertical size={14} /> Drag module cards between quadrants
+          <GripVertical size={14} /> Drag cards to reorder or move between quadrants
         </span>
       </div>
     </>
@@ -1719,15 +1777,16 @@ function DraggablePriorityCard({
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: `module-${module.id}` });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `drop-module-${module.id}` });
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => { setNodeRef(node); setDropRef(node); }}
       style={{
         transform: transform
           ? `translate3d(${transform.x}px,${transform.y}px,0)`
           : undefined,
       }}
-      className={`priority-module ${isDragging ? "is-dragging" : ""}`}
+      className={`priority-module ${isDragging ? "is-dragging" : ""} ${isOver && !isDragging ? "drag-over" : ""}`}
     >
       <button
         className="drag-handle"
@@ -1771,6 +1830,7 @@ function TeamPage({
   const [editing, setEditing] = useState<Developer | null>(null);
   const [editName, setEditName] = useState("");
   const [editRole, setEditRole] = useState("");
+  const [editPhoto, setEditPhoto] = useState("");
   useEffect(() => {
     if (!editing) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1818,7 +1878,7 @@ function TeamPage({
     try {
       await api(
         `/api/developers/${editing.id}`,
-        json("PATCH", { name: editName, role_label: editRole }),
+        json("PATCH", { name: editName, role_label: editRole, photo_url: editPhoto }),
       );
       setEditing(null);
       await refresh("Developer profile updated.");
@@ -1949,6 +2009,7 @@ function TeamPage({
                 setEditing(d);
                 setEditName(d.name);
                 setEditRole(d.role_label);
+                setEditPhoto(d.photo_url || "");
               }}
             />
           ))}
@@ -2012,6 +2073,17 @@ function TeamPage({
                 onChange={(e) => setEditRole(e.target.value)}
               />
             </label>
+            <label>Profile picture (PNG, JPEG or WebP, up to 200 KB)
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                if (file.size > 200000 || !["image/png", "image/jpeg", "image/webp"].includes(file.type)) { notify("Choose a PNG, JPEG, or WebP image under 200 KB."); event.target.value = ""; return; }
+                const reader = new FileReader();
+                reader.onload = () => setEditPhoto(String(reader.result));
+                reader.readAsDataURL(file);
+              }} />
+            </label>
+            {editPhoto && <button type="button" className="text-button" onClick={() => setEditPhoto("")}>Remove picture</button>}
             <div className="modal-actions">
               <button
                 type="button"
@@ -3446,6 +3518,7 @@ function ModuleDrawer({
   saveTask,
   addTask,
   notify,
+  refresh,
 }: any) {
   const [meta, setMeta] = useState({
     description: module.description,
@@ -3928,6 +4001,14 @@ function ModuleDrawer({
           </section>
         </div>
         <div className="drawer-footer">
+          <button className="button secondary" onClick={async () => {
+            if (!window.confirm(`Delete ${module.name}? It will be removed from all module views. Its tasks will remain unassigned to a module.`)) return;
+            try {
+              await api(`/api/modules/${module.id}`, { method: "DELETE" });
+              close();
+              await refresh("Module deleted.");
+            } catch (error) { notify(error instanceof Error ? error.message : "Could not delete module."); }
+          }}><Trash2 size={15} /> Delete module</button>
           <button className="button secondary" onClick={close}>
             Close details
           </button>

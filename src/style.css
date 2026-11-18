@@ -1510,6 +1510,7 @@ a {
 .priority-module:hover {
   border-color: #ccd5de;
 }
+  .priority-module.drag-over { outline: 2px solid #4f83cc; }
 .priority-module.is-dragging {
   z-index: 40;
   box-shadow: 0 7px 20px rgba(16, 24, 40, 0.13);

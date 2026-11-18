@@ -200,6 +200,8 @@ export function initializeDatabase() {
     db.exec("ALTER TABLE modules ADD COLUMN category TEXT NOT NULL DEFAULT 'Other'");
   if (!legacyHasColumn("modules", "active"))
     db.exec("ALTER TABLE modules ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))");
+  if (!legacyHasColumn("developers", "photo_url"))
+    db.exec("ALTER TABLE developers ADD COLUMN photo_url TEXT NOT NULL DEFAULT ''");
 
   const insertStage = db.prepare(
     `INSERT OR IGNORE INTO stages (module_id,stage_type,updated_at) VALUES (?,?,?)`,
@@ -235,15 +237,8 @@ export function initializeDatabase() {
             timestamp,
           ).lastInsertRowid,
       );
-      db.prepare(
-        "UPDATE modules SET category=?,active=1,display_order=? WHERE id=?",
-      ).run(definition.category, index + 1, id);
       STAGES.forEach((stage) => insertStage.run(id, stage, timestamp));
     });
-    const activeNames = MODULE_NAMES.map(() => "?").join(",");
-    db.prepare(
-      `UPDATE modules SET active=0 WHERE name NOT IN (${activeNames})`,
-    ).run(...MODULE_NAMES);
     db.prepare(
       "INSERT OR IGNORE INTO settings (key,value,updated_at) VALUES (?,?,?)",
     ).run("project_name", "Campus ERP", timestamp);

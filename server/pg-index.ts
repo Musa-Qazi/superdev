@@ -35,7 +35,7 @@ function asyncRoute(fn: (req: Request, res: Response, next: NextFunction) => unk
 const port = Number(process.env.PORT || 3001);
 const accessKey = process.env.APP_ACCESS_KEY || "";
 app.disable("x-powered-by");
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 const cookieName = "devpulse_session";
 const signature = (value: string) =>
@@ -134,9 +134,51 @@ const getDevName = async (id: number | null) =>
       )?.name ?? null);
 
 app.get("/api/modules", asyncRoute(async (_req, res) => res.json({ data: (await getModules()) })));
+app.post("/api/modules", asyncRoute(async (req, res) => {
+  const { name, category = "Other", frontend_completed = false } = req.body ?? {};
+  valid(typeof name === "string" && name.trim().length > 0 && name.trim().length <= 120, "Enter a module name up to 120 characters.");
+  valid(typeof category === "string" && category.trim().length > 0 && category.length <= 80, "Enter an area up to 80 characters.");
+  valid(typeof frontend_completed === "boolean", "Invalid frontend status.");
+  valid(!await db.prepare("SELECT id FROM modules WHERE lower(name)=lower(?)").get(name.trim()), "A module with this name already exists.");
+  const timestamp = now();
+  const id = await db.transaction(async () => {
+    const order = await db.prepare("SELECT COALESCE(MAX(display_order),0)+1 AS value FROM modules").get() as {value: number};
+    const result = await db.prepare("INSERT INTO modules (name,category,display_order,created_at,updated_at) VALUES (?,?,?,?,?)").run(name.trim(),category.trim(),order.value,timestamp,timestamp);
+    const moduleId = Number(result.lastInsertRowid);
+    const insert = db.prepare("INSERT INTO stages (module_id,stage_type,status,progress,started_at,completed_at,updated_at) VALUES (?,?,?,?,?,?,?)");
+    for (const stage of STAGES) { const completed = stage === "frontend" && frontend_completed; await insert.run(moduleId,stage,completed ? "Completed" : "Not Started",completed ? 100 : 0,completed ? timestamp : null,completed ? timestamp : null,timestamp); }
+    return moduleId;
+  })();
+  await logActivity("module",id,"created",`${name.trim()} module added.`);
+  res.status(201).json({ data: await getModule(id) });
+}));
+app.put("/api/modules/order", asyncRoute(async (req, res) => {
+  const ids = req.body?.module_ids;
+  const current = await getModules();
+  valid(Array.isArray(ids) && ids.length === current.length &&
+    new Set(ids).size === current.length &&
+    ids.every((id: unknown) => current.some((module) => module.id === id)),
+    "The module list changed. Refresh and try again.");
+  await db.transaction(async () => {
+    const update = db.prepare("UPDATE modules SET display_order=? WHERE id=?");
+    for (let index = 0; index < ids.length; index++) await update.run(index + 1, ids[index]);
+  })();
+  res.json({ data: await getModules() });
+}));
 app.get("/api/modules/:id", asyncRoute(async (req, res) => {
   const module = (await getModule(asId(req.params.id)));
   return module ? res.json({ data: module }) : notFound(res);
+}));
+app.delete("/api/modules/:id", asyncRoute(async (req, res) => {
+  const id = asId(req.params.id);
+  const module = await getModule(id);
+  if (!module) return notFound(res);
+  await db.transaction(async () => {
+    await db.prepare("UPDATE tasks SET module_id=NULL WHERE module_id=?").run(id);
+    await db.prepare("UPDATE modules SET active=0,updated_at=? WHERE id=?").run(now(), id);
+  })();
+  await logActivity("module", id, "deleted", `${module.name} module deleted.`);
+  res.json({ ok: true });
 }));
 app.patch("/api/modules/bulk-update", asyncRoute(async (req, res, next) => {
   try {
@@ -145,7 +187,7 @@ app.patch("/api/modules/bulk-update", asyncRoute(async (req, res, next) => {
     valid(
       Array.isArray(module_ids) &&
         module_ids.length > 0 &&
-        module_ids.length <= MODULE_NAMES.length &&
+        module_ids.length <= 10000 &&
         new Set(module_ids).size === module_ids.length &&
         module_ids.every(
           (id: unknown) =>
@@ -435,6 +477,7 @@ app.patch("/api/developers/:id", asyncRoute(async (req, res, next) => {
     const {
       name = current.name,
       role_label = current.role_label,
+      photo_url = current.photo_url ?? "",
       active = current.active === 1,
     } = req.body ?? {};
     valid(
@@ -448,6 +491,7 @@ app.patch("/api/developers/:id", asyncRoute(async (req, res, next) => {
       "Role must be 80 characters or fewer.",
     );
     valid(typeof active === "boolean", "Active must be true or false.");
+    valid(typeof photo_url === "string" && (photo_url === "" || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(photo_url)) && photo_url.length <= 280000, "Choose a PNG, JPEG, or WebP image under 200 KB.");
     const clean = name.trim();
     const initials = clean
       .split(/\s+/)
@@ -456,8 +500,8 @@ app.patch("/api/developers/:id", asyncRoute(async (req, res, next) => {
       .join("")
       .toUpperCase();
     (await db.prepare(
-      "UPDATE developers SET name=?,initials=?,role_label=?,active=?,updated_at=? WHERE id=?",
-    ).run(clean, initials, role_label.trim(), active ? 1 : 0, now(), id));
+      "UPDATE developers SET name=?,initials=?,role_label=?,photo_url=?,active=?,updated_at=? WHERE id=?",
+    ).run(clean, initials, role_label.trim(), photo_url, active ? 1 : 0, now(), id));
     res.json({
       data: (await db.prepare("SELECT * FROM developers WHERE id=?").get(id)),
     });
@@ -1040,7 +1084,7 @@ app.post("/api/import/json", asyncRoute(async (req, res, next) => {
     );
     valid(
       data.version === 2 &&
-        data.modules.length >= MODULE_DEFINITIONS.length &&
+        data.modules.length >= 0 &&
         new Set(data.modules.map((module: any) => module.id)).size ===
           data.modules.length &&
         new Set(data.modules.map((module: any) => module.name)).size ===
@@ -1059,19 +1103,9 @@ app.post("/api/import/json", asyncRoute(async (req, res, next) => {
       ),
       "Backup module records are invalid.",
     );
-    const activeModules = data.modules
-      .filter((module: any) => module.active === 1)
-      .sort((a: any, b: any) => a.display_order - b.display_order);
-    valid(
-      activeModules.length === MODULE_DEFINITIONS.length &&
-        activeModules.every(
-          (module: any, index: number) =>
-            module.name === MODULE_DEFINITIONS[index].name &&
-            module.category === MODULE_DEFINITIONS[index].category &&
-            module.display_order === index + 1,
-        ),
-      "Backup active module inventory is invalid or out of order.",
-    );
+    const activeModules = data.modules.filter((module: any) => module.active === 1);
+    valid(new Set(activeModules.map((module: any) => module.display_order)).size === activeModules.length,
+      "Backup contains duplicate module positions.");
     const stageKeys = new Set(
       data.stages.map((stage: any) => `${stage.module_id}:${stage.stage_type}`),
     );
@@ -1167,13 +1201,14 @@ app.post("/api/import/json", asyncRoute(async (req, res, next) => {
           m.updated_at,
         ); }
       const insDev = db.prepare(
-        "INSERT INTO developers (id,name,initials,role_label,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO developers (id,name,initials,role_label,photo_url,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
       );
       for (const d of data.developers) { await insDev.run(
           d.id,
           d.name,
           d.initials,
           d.role_label,
+          d.photo_url ?? "",
           d.active,
           d.created_at,
           d.updated_at,
